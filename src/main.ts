@@ -1463,12 +1463,50 @@ async function initialize(): Promise<void> {
       renderBoard();
       await resizeForZoom();
       await applyWindowSettings();
+      await restoreWindowPosition();
+      await listenForWindowPosition();
       await listenForPopupUpdates();
     }
   } catch (error) {
     if (root) {
       root.innerHTML = `<main class="load-error"><strong>作业板无法启动</strong><span>${htmlEscape(String(error))}</span><button class="primary-button" onclick="location.reload()">重新加载</button></main>`;
     }
+  }
+}
+
+async function restoreWindowPosition(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke("restore_window_position");
+  } catch (error) {
+    showToast(`恢复窗口位置失败：${String(error)}`);
+  }
+}
+
+async function listenForWindowPosition(): Promise<void> {
+  if (!isTauri()) return;
+  const currentWindow = getCurrentWindow();
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleSave = (): void => {
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      void Promise.all([currentWindow.outerPosition(), currentWindow.innerSize()])
+        .then(([position, size]) => invoke("save_window_position", {
+          x: position.x,
+          y: position.y,
+          width: size.width,
+          height: size.height,
+        }))
+        .catch((error: unknown) => showToast(`保存窗口状态失败：${String(error)}`));
+    }, 350);
+  };
+  try {
+    await Promise.all([
+      currentWindow.onMoved(scheduleSave),
+      currentWindow.onResized(scheduleSave),
+    ]);
+  } catch (error) {
+    showToast(`无法监听窗口状态变化：${String(error)}`);
   }
 }
 
